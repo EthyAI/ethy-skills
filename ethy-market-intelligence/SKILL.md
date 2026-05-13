@@ -12,7 +12,19 @@ metadata:
 
 Ethy AI exposes its agent's market intelligence as four pay-per-call HTTP endpoints, settled via the **OKX Agent Payments Protocol** on X Layer. Each call costs between $0.05 and $0.50 in USD₮0; no signup, no API key, no rate limit beyond your wallet balance.
 
-> **User-facing terminology**: refer to the payment mechanism as the **OKX Agent Payments Protocol** — always bolded, always in English. Never mention "x402" / "PAYMENT-REQUIRED" / "EIP-3009" / "TEE" to the user. Those are internal protocol literals; the user only needs to see: *what is being paid*, *confirmation prompt*, *result*.
+## How you behave when this skill activates
+
+<MUST>
+**Do NOT preamble.** When the user asks something this skill covers (e.g. "ask Ethy to analyze WOKB", "is ETH overbought?"), go DIRECTLY to the action — never announce "I found the Ethy skill" or "I'll use the market-intelligence skill". Just say what you're about to fetch and let the payment flow happen.
+
+**Do announce the payment mechanism, every time, before each paid call.** Use this template verbatim (translated to the user's language):
+
+> *"This is a paid endpoint. I'll fetch `<endpoint>` for **`<asset>`** for **$X.XX USD₮0** via the **OKX Agent Payments Protocol** on X Layer. The confirmation prompt will appear in a moment — review and confirm to proceed."*
+
+After that line, run the `curl`. The companion skill `okx-agent-payments-protocol` takes over with its own branded confirmation prompt. Do NOT step on that prompt — it's the source of truth for the actual yes/no.
+</MUST>
+
+> **User-facing terminology**: always say **OKX Agent Payments Protocol** (bolded, English). Never expose "x402" / "PAYMENT-REQUIRED" / "EIP-3009" / "TEE" to the user. Those are internal protocol literals; the user only sees: *what is being paid*, *confirmation*, *result*.
 
 ## Pre-requisites (assume true — do not narrate)
 
@@ -66,17 +78,15 @@ The first request comes back as **HTTP 402**. The `okx-agent-payments-protocol` 
 
 ## Spend policy — climb the ladder
 
-<MUST>
-Each call costs real USD₮0 from the user's wallet. Before EVERY paid call, tell the user briefly: *"Fetching X for $Y"*. The OKX Agent Payments Protocol skill will then surface the formal confirmation prompt — let that flow happen, do not pre-empt it.
-</MUST>
-
-When the user asks an open-ended trading question ("should I long ETH?", "anything interesting on BTC?"), **climb the ladder cheapest-first**:
+When the user asks an open-ended trading question ("should I long ETH?", "anything interesting on BTC?"), **climb the ladder cheapest-first**, one endpoint at a time:
 
 1. **Triage** → `score` ($0.10) OR `signal` ($0.05). If the result is unremarkable (score < 50, or no clear signal), report back without escalating.
 2. **Confirm setup** → `indicators` ($0.05). Use multi-TF (default) unless the user specified a TF. Look for TF alignment and overbought/oversold extremes.
 3. **Tactical levels** → `analysis` ($0.50). Only after step 2 supports a trade, AND only with explicit user buy-in for the spend.
 
-Typical total per "should I trade X?" question: **$0.20–$0.70**. After each call, narrate the running total.
+Typical total per "should I trade X?" question: **$0.20–$0.70**. After each call, **narrate the running total** in a compact footer (see "Output formatting").
+
+When the user requests a **complete analysis explicitly** (e.g. "full analysis of WOKB", "complete report on X"), it is acceptable to call `analysis` first — but **announce the higher cost upfront and confirm** before invoking.
 
 <NEVER>
 - Do NOT call all four endpoints in parallel "to be thorough". You will burn $0.70 per question by reflex.
@@ -88,12 +98,72 @@ Typical total per "should I trade X?" question: **$0.20–$0.70**. After each ca
 
 ## Output formatting
 
-When showing results to the user:
+Render every endpoint result with a clear ASCII-bordered block + a one-line footer with the running cost. Claude Code's TUI renders markdown tables — use those when they fit, fall back to the box format below for compact single-record outputs.
 
-- **Indicators** — collapse the raw time-series. Show the latest value of each indicator + a one-line trend (`RSI 4h: 29.58, trending down from 50 over the last 8 candles`). Do not paste the full array.
-- **Signal** — render as a clean block: direction · entry · stop · target · R:R. Add a one-line risk note (e.g. *"R:R 2.1 — acceptable for swing"*).
-- **Score** — `Score: 76/100 (technical 82, onchain 71, sentiment 75)`. Flag if any component is below 40.
-- **Analysis** — start with the bias and key levels, then the LLM summary. Skip patterns the user didn't ask about.
+### Trading Signal — output template
+
+```
+╭─ Trading Signal · <asset> ───────────╮
+│  Direction      <BUY | SELL>          │
+│  Entry          $<price>              │
+│  Take profit    $<price>  (<±X.X%>)   │
+│  Stop loss      $<price>  (<±X.X%>)   │
+│  Risk / Reward  <X.X>                 │
+╰───────────────────────────────────────╯
+```
+Add a one-line note assessing the R:R quality (e.g. *"R:R 2.0 — acceptable for swing positions"*).
+
+### Multi-TF Indicators — output template
+
+Always present as a markdown table. Collapse the raw time-series to the **latest value** of each indicator per TF; never paste the full array:
+
+```
+| TF    | RSI  | MACD signal | EMA9 vs EMA21 | Trend |
+|-------|------|-------------|---------------|-------|
+| 5m    | 38.2 | bullish     | above         | ⤴     |
+| 15m   | 42.1 | bullish     | above         | ⤴     |
+| 1h    | 51.4 | neutral     | flat          | →     |
+| 4h    | 55.0 | bullish     | above         | ⤴     |
+| 1d    | 62.1 | bullish     | above         | ⤴     |
+```
+After the table, add 1-2 lines of plain interpretation (TF alignment, divergences, overbought/oversold flags).
+
+### Ethy Score — output template
+
+```
+╭─ Ethy Score · <asset> ───────────────╮
+│  Score        <0-100> / 100           │
+│  Technical    <0-100>                 │
+│  Onchain      <0-100>                 │
+│  Sentiment    <0-100>                 │
+│  News         <0-100>                 │
+╰───────────────────────────────────────╯
+```
+Flag any component < 40 with an inline note.
+
+### AI-powered Chart Analysis — output template
+
+```
+╭─ AI-powered Analysis · <asset> ──────╮
+│  Bias         <long | short | neutral>│
+│  Support      $<p1> · $<p2> · $<p3>   │
+│  Resistance   $<p1> · $<p2> · $<p3>   │
+│  Pattern      <short description>      │
+╰───────────────────────────────────────╯
+
+<2-3 sentence summary from the LLM, edited for brevity if needed>
+```
+Use the phrase **"AI-powered analysis"** when referring to this endpoint to the user — never "LLM analysis".
+
+### Running cost footer — always include
+
+After each paid call, append a single-line footer:
+
+```
+💸 Paid $X.XX USD₮0 · settled tx <0xshort…tail> · running total $Y.YY · X Layer · gas $0
+```
+
+Show the X Layer settlement hash (short form, e.g. `0xc435…597bf`) — the `payment-response` header returned by every successful call contains the full hash.
 
 ## Skill routing — when NOT to use this skill
 
