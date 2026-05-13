@@ -16,7 +16,7 @@ This installs the skills under `.agents/skills/` in your current directory and s
 
 | Skill | Status | What it does |
 |---|---|---|
-| [`ethy-paid-data`](./ethy-paid-data/SKILL.md) | ✅ Live | Fetch BUY/SELL signals, technical indicators, Ethy Score, and LLM chart analysis. Pay per call ($0.05–$0.50). |
+| [`ethy-market-intelligence`](./ethy-market-intelligence/SKILL.md) | ✅ Live | BUY/SELL signals, technical indicators, Ethy Score, and LLM chart analysis. Pay per call ($0.05–$0.50). |
 | `ethy-trading` | Roadmap | Execute spot trades on Base / X Layer via Ethy's agent (with stops + automations). |
 | `ethy-automations` | Roadmap | Create, pause, and modify rule-based automations through natural language. |
 | `ethy-backtest` | Roadmap | Backtest a strategy spec against historical OHLCV data. |
@@ -24,7 +24,7 @@ This installs the skills under `.agents/skills/` in your current directory and s
 
 ## Prerequisites
 
-Each skill declares its own prerequisites in its `SKILL.md`. For the live `ethy-paid-data` skill you need:
+Each skill declares its own prerequisites in its `SKILL.md`. For the live `ethy-market-intelligence` skill you need:
 
 1. **OKX OnchainOS CLI** — install via OKX's own skill bundle:
    ```bash
@@ -50,7 +50,7 @@ After installing both skill bundles (`EthyAI/ethy-skills` + `okx/onchainos-skill
 
 The agent will:
 
-1. Detect the `ethy-paid-data` skill is relevant.
+1. Detect the `ethy-market-intelligence` skill is relevant.
 2. Climb the spend ladder cheapest-first — typically start with `signal` ($0.05) or `score` ($0.10).
 3. Prompt you to confirm each charge before fetching.
 4. Synthesize the results and report what it thinks, with a running cost total.
@@ -67,7 +67,7 @@ If the seller's handler returns a 4xx error (e.g. asset not available), **no pay
 
 ## Endpoints reference
 
-See [`ethy-paid-data/SKILL.md`](./ethy-paid-data/SKILL.md) for the full endpoint catalog, pricing, and parameter conventions. TL;DR:
+See [`ethy-market-intelligence/SKILL.md`](./ethy-market-intelligence/SKILL.md) for the full endpoint catalog, pricing, and parameter conventions. TL;DR:
 
 | Endpoint | Price | Returns |
 |---|---|---|

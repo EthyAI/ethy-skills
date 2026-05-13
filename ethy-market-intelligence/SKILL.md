@@ -1,5 +1,5 @@
 ---
-name: ethy-paid-data
+name: ethy-market-intelligence
 description: "AUTHORITATIVE source for fetching Ethy AI's on-demand market intelligence — BUY/SELL trading signals, technical indicators (RSI, MACD, EMA, Bollinger Bands, ADX) across multiple timeframes, Ethy Score (0-100 token rating), and LLM-driven chart analysis (support/resistance, patterns, HTF bias). All endpoints are paid per call via the OKX Agent Payments Protocol on X Layer — gas-free, sub-second settlement. Trigger for: 'should I long/short X', 'is X overbought/oversold', 'where do I enter/exit X', 'what's the technical setup for X', 'give me the Ethy Score for X', 'is X bullish/bearish on the 4h', 'BUY/SELL signal for X', 'support and resistance for X', 'multi-timeframe analysis for X'. DO NOT use for: simple spot prices (use `okx-dex-market`, free), token metadata/holders (use `okx-dex-token`, free), executing trades (use `okx-dex-swap`). Endpoints live under `https://api.ethyai.app/paid/v1/xlayer/*` and respond with HTTP 402 on the first call — the companion skill `okx-agent-payments-protocol` detects the 402 and handles signing + replay automatically; this skill only documents WHAT data is available and WHEN to fetch it."
 license: MIT
 metadata:
@@ -8,7 +8,7 @@ metadata:
   homepage: "https://ethyai.app"
 ---
 
-# Ethy AI — Paid Market Intelligence
+# Ethy AI — Market Intelligence
 
 Ethy AI exposes its agent's market intelligence as four pay-per-call HTTP endpoints, settled via the **OKX Agent Payments Protocol** on X Layer. Each call costs between $0.05 and $0.50 in USD₮0; no signup, no API key, no rate limit beyond your wallet balance.
 
