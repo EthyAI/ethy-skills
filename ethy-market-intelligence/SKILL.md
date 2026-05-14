@@ -149,54 +149,62 @@ curl -fsS 'https://api.ethyai.app/paid/v1/xlayer/<endpoint>/<chain>/<asset>'
 
 That's it. The 402 hits the companion skill, the user confirms, the replay happens, and you receive the 200 body. **You do not assemble payment headers, you do not call signing CLIs, you do not parse base64 payloads.** That is the companion skill's job. Your job is to decide *which endpoint to call and with what arguments*, then format the result.
 
-### Signing without the OKX Agentic Wallet (manual path)
+### Server-side integration with the OKX Agent Payments Protocol SDK
 
-The endpoints follow the public x402 protocol — any wallet that can sign EIP-3009 `transferWithAuthorization` for USD₮0 on X Layer can pay. The agentic wallet just makes it ergonomic (TEE signing, no key in your shell, gas-free relay).
+If you're integrating outside an agent loop (CI, backend service, your own client), use the official OKX SDK — it wraps the entire 402 → sign → replay round trip behind a single `fetch`-compatible call. Full docs: <https://web3.okx.com/onchainos/dev-docs/payments/sdk-nodejs>.
 
-Skeleton with `viem` if you're integrating outside an agent:
+**Install:**
 
-```ts
-import { createWalletClient, http } from 'viem';
-import { privateKeyToAccount } from 'viem/accounts';
-import { xLayer } from 'viem/chains'; // or define { id: 196, ... }
-
-const URL = 'https://api.ethyai.app/paid/v1/xlayer/signal/xlayer/xETH';
-
-// 1. Probe — get the 402 challenge from the payment-required header
-const probe = await fetch(URL);
-const challenge = JSON.parse(Buffer.from(probe.headers.get('payment-required')!, 'base64').toString());
-const accepted = challenge.accepts.find((a: any) => a.scheme === 'exact');
-
-// 2. Sign — EIP-3009 transferWithAuthorization over USD₮0 on X Layer (chainId 196)
-const account = privateKeyToAccount(process.env.PRIVATE_KEY as `0x${string}`);
-const wallet = createWalletClient({ account, chain: xLayer, transport: http() });
-const authorization = {
-  from: account.address,
-  to: accepted.payTo,
-  value: accepted.amount,
-  validAfter: '0',
-  validBefore: String(Math.floor(Date.now() / 1000) + accepted.maxTimeoutSeconds),
-  nonce: '0x' + Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('hex'),
-};
-const signature = await wallet.signTypedData({
-  domain: { name: accepted.extra.name, version: accepted.extra.version, chainId: 196, verifyingContract: accepted.asset },
-  types: { TransferWithAuthorization: [
-    { name: 'from', type: 'address' }, { name: 'to', type: 'address' },
-    { name: 'value', type: 'uint256' }, { name: 'validAfter', type: 'uint256' },
-    { name: 'validBefore', type: 'uint256' }, { name: 'nonce', type: 'bytes32' },
-  ]},
-  primaryType: 'TransferWithAuthorization',
-  message: { ...authorization, value: BigInt(authorization.value), validAfter: 0n, validBefore: BigInt(authorization.validBefore) },
-});
-
-// 3. Replay with the PAYMENT-SIGNATURE header
-const envelope = { x402Version: 2, resource: challenge.resource, accepted, payload: { signature, authorization } };
-const header = Buffer.from(JSON.stringify(envelope)).toString('base64');
-const res = await fetch(URL, { headers: { 'PAYMENT-SIGNATURE': header } });
-const body = await res.json();
+```bash
+npm install @okxweb3/x402-fetch @okxweb3/x402-evm @okxweb3/x402-core viem
 ```
 
-This path works without OnchainOS — useful for testing, CI, or server-side integrations. Inside an agent loop, prefer the OKX Agentic Wallet (handled by the companion skill) for safer key custody + TEE signing.
+**Pay any Ethy endpoint with one `fetch` call:**
+
+```ts
+import { wrapFetchWithPaymentFromConfig, decodePaymentResponseHeader } from '@okxweb3/x402-fetch';
+import { ExactEvmScheme, toClientEvmSigner } from '@okxweb3/x402-evm';
+import { createWalletClient, http } from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
+import { xLayer } from 'viem/chains';
+
+// 1. viem signer over the X Layer-funded account (must hold USD₮0)
+const signer = toClientEvmSigner(
+  createWalletClient({
+    account: privateKeyToAccount(process.env.EVM_PRIVATE_KEY as `0x${string}`),
+    chain: xLayer,
+    transport: http(),
+  }),
+);
+
+// 2. wrap `fetch` with the x402 exact scheme on eip155:196
+const fetchWithPayment = wrapFetchWithPaymentFromConfig(fetch, {
+  schemes: [
+    {
+      network: 'eip155:196',
+      client: new ExactEvmScheme(signer),
+    },
+  ],
+});
+
+// 3. call any paid endpoint — payment is handled internally on 402
+const res = await fetchWithPayment(
+  'https://api.ethyai.app/paid/v1/xlayer/signal/xlayer/xETH',
+);
+const signal = await res.json();
+//   ↳ { direction: 'BUY', entryPrice: ..., takeProfit: ..., stopLoss: ..., ... }
+
+// 4. (optional) decode the on-chain receipt
+const receiptHeader = res.headers.get('payment-response');
+if (receiptHeader) {
+  const receipt = decodePaymentResponseHeader(receiptHeader);
+  console.log(receipt.transaction); // X Layer tx hash
+}
+```
+
+The wrapper does everything internally: probes the 402, decodes the `payment-required` challenge, finds the matching `exact` scheme entry, signs EIP-3009 `transferWithAuthorization` via the registered signer, replays with the `PAYMENT-SIGNATURE` header, and returns the 200 `Response`. The `payment-response` header on success carries the X Layer settlement tx hash.
+
+Inside an agent loop (Claude Code, Cursor, etc.) prefer the OnchainOS skill bundle — it adds the user-facing confirmation prompt and uses the TEE-backed Agentic Wallet for signing, so no private key ever enters your shell. The SDK path above is the right choice for server-side / CI / non-agent integrations.
 
 ## Spend policy — climb the ladder
 
