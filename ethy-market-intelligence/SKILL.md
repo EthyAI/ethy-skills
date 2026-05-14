@@ -78,7 +78,7 @@ GET /paid/v1/xlayer/analysis/base/VIRTUAL
 GET /paid/v1/xlayer/signal/base/AERO
 ```
 
-## The 402 → pay → retry round trip
+## Anatomy of a paid call
 
 Every paid call follows the same three-step protocol dance. **In an agent loop the OnchainOS companion skill automates all of it; from a backend or CI the OKX SDK wraps it in one `fetch` call.** Both paths produce the same on-chain settlement on X Layer. The mechanics are documented here so you know what's happening under each path:
 
