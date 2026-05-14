@@ -12,16 +12,16 @@ metadata:
 
 Ethy AI exposes its agent's market intelligence as four pay-per-call HTTP endpoints, settled via the **OKX Agent Payments Protocol** on X Layer. Each call costs between $0.05 and $0.25 in USD₮0; no signup, no API key, no rate limit beyond your wallet balance.
 
-## Required companion skills
+## How payment works (two paths)
 
-This skill only documents **what data to fetch and when**. The actual payment plumbing lives elsewhere — without the companion skills below installed, the 402 response cannot be settled and the buyer never sees a result.
+This skill documents **what data to fetch and when**. Settling the 402 response is a separate concern — you have two options depending on where you're integrating from:
 
-| Companion skill | Why it's required |
-|---|---|
-| **`okx-agentic-wallet`** | The TEE-backed wallet that signs the EIP-3009 authorization. Must be logged in and funded with USD₮0 on X Layer. |
-| **`okx-agent-payments-protocol`** | Detects HTTP 402 on the response, decodes the challenge, walks the user through the confirmation prompt, signs via the agentic wallet, and replays the request. Owns the entire 402 → pay → retry round trip. |
+| Context | What handles the payment | Why pick this path |
+|---|---|---|
+| **Inside an AI agent** (Claude Code, Cursor, Cline, …) | The OnchainOS skill bundle (`okx-agentic-wallet` + `okx-agent-payments-protocol`). Install with `npx skills add okx/onchainos-skills`. | Adds the user-facing confirmation prompt, signs via the TEE-backed Agentic Wallet, no private key ever in your shell. |
+| **Server-side / SDK** (your backend, CI, non-agent integration) | The official `@okxweb3/x402-fetch` SDK with a viem-signed key. | One `fetch` call wraps the entire 402 → sign → replay round trip. See the SDK example below. |
 
-Both ship together as part of the OnchainOS skills bundle (`npx skills add okx/onchainos-skills`). If either is missing, fall back to telling the user "install OnchainOS skills first" — do not attempt to assemble payment headers manually from this skill.
+Both paths talk to the same X Layer broker and pay the same USD₮0. Pick whichever fits your stack. The agent path is recommended in user-facing flows because it surfaces the spend to the user before signing; the SDK path is the right call for autonomous backend integrations.
 
 ## How you behave when this skill activates
 
@@ -80,7 +80,7 @@ GET /paid/v1/xlayer/signal/base/AERO
 
 ## The 402 → pay → retry round trip
 
-Every paid call follows the same three-step dance, and the companion skill `okx-agent-payments-protocol` automates all of it. **From this skill's point of view, all you do is `curl` — the companion handles the rest.** The mechanics are documented here for clarity:
+Every paid call follows the same three-step protocol dance. **In an agent loop the OnchainOS companion skill automates all of it; from a backend or CI the OKX SDK wraps it in one `fetch` call.** Both paths produce the same on-chain settlement on X Layer. The mechanics are documented here so you know what's happening under each path:
 
 ### Step 1 — initial GET returns 402
 
@@ -116,11 +116,14 @@ The `payment-required` header is a base64-encoded JSON challenge:
 
 ### Step 2 — sign the authorization
 
-The companion skill calls the agentic wallet's TEE signer (under the hood: `onchainos payment x402-pay --network eip155:196 --amount 50000 --pay-to 0xe806… --asset 0x779d…`) and produces an EIP-3009 `transferWithAuthorization` signature. The user sees the OnchainOS branded confirmation prompt with the exact amount + payee + network before the signature is generated.
+Produce an EIP-3009 `transferWithAuthorization` signature for the accepted scheme (USD₮0 on X Layer, chainId 196). The signer is whichever you've configured:
+
+- **Agent path** — the OnchainOS companion calls the TEE signer (under the hood: `onchainos payment x402-pay --network eip155:196 --amount 50000 --pay-to 0xe806… --asset 0x779d…`). The user sees the OnchainOS branded confirmation prompt with the exact amount + payee + network before the signature is generated.
+- **SDK path** — `@okxweb3/x402-fetch` signs internally via the viem `Account` you passed in (see "Server-side integration" below). No prompt, fully autonomous — appropriate for backends.
 
 ### Step 3 — replay the request with the `PAYMENT-SIGNATURE` header
 
-The companion skill assembles the final header:
+The signing layer (companion skill OR SDK) assembles the final header:
 ```
 PAYMENT-SIGNATURE: <base64 of { x402Version, resource, accepted, payload: { signature, authorization } }>
 ```
@@ -141,13 +144,15 @@ payment-response: <base64 with the X Layer settlement tx hash>
 
 The `payment-response` header decodes to `{ network, payer, success: true, transaction: "0x…" }` — that's your on-chain receipt.
 
-### What you actually do from this skill
+### What you actually do (agent loop)
+
+When this skill activates inside an agent, all you do is:
 
 ```bash
 curl -fsS 'https://api.ethyai.app/paid/v1/xlayer/<endpoint>/<chain>/<asset>'
 ```
 
-That's it. The 402 hits the companion skill, the user confirms, the replay happens, and you receive the 200 body. **You do not assemble payment headers, you do not call signing CLIs, you do not parse base64 payloads.** That is the companion skill's job. Your job is to decide *which endpoint to call and with what arguments*, then format the result.
+The 402 hits the OnchainOS companion skill, the user confirms in its branded prompt, the replay happens, and you receive the 200 body. **You do not assemble payment headers, you do not call signing CLIs, you do not parse base64 payloads.** That is the companion's job. Your job is to decide *which endpoint to call and with what arguments*, then format the result.
 
 ### Server-side integration with the OKX Agent Payments Protocol SDK
 
