@@ -4,13 +4,24 @@ description: "AUTHORITATIVE source for fetching Ethy AI's on-demand market intel
 license: MIT
 metadata:
   author: Ethy AI
-  version: "0.1.0"
+  version: "0.2.0"
   homepage: "https://ethyai.app"
 ---
 
 # Ethy AI — Market Intelligence
 
-Ethy AI exposes its agent's market intelligence as four pay-per-call HTTP endpoints, settled via the **OKX Agent Payments Protocol** on X Layer. Each call costs between $0.05 and $0.50 in USD₮0; no signup, no API key, no rate limit beyond your wallet balance.
+Ethy AI exposes its agent's market intelligence as four pay-per-call HTTP endpoints, settled via the **OKX Agent Payments Protocol** on X Layer. Each call costs between $0.05 and $0.25 in USD₮0; no signup, no API key, no rate limit beyond your wallet balance.
+
+## Required companion skills
+
+This skill only documents **what data to fetch and when**. The actual payment plumbing lives elsewhere — without the companion skills below installed, the 402 response cannot be settled and the buyer never sees a result.
+
+| Companion skill | Why it's required |
+|---|---|
+| **`okx-agentic-wallet`** | The TEE-backed wallet that signs the EIP-3009 authorization. Must be logged in and funded with USD₮0 on X Layer. |
+| **`okx-agent-payments-protocol`** | Detects HTTP 402 on the response, decodes the challenge, walks the user through the confirmation prompt, signs via the agentic wallet, and replays the request. Owns the entire 402 → pay → retry round trip. |
+
+Both ship together as part of the OnchainOS skills bundle (`npx skills add okx/onchainos-skills`). If either is missing, fall back to telling the user "install OnchainOS skills first" — do not attempt to assemble payment headers manually from this skill.
 
 ## How you behave when this skill activates
 
@@ -26,24 +37,16 @@ After that line, run the `curl`. The companion skill `okx-agent-payments-protoco
 
 > **User-facing terminology**: always say **OKX Agent Payments Protocol** (bolded, English). Never expose "x402" / "PAYMENT-REQUIRED" / "EIP-3009" / "TEE" to the user. Those are internal protocol literals; the user only sees: *what is being paid*, *confirmation*, *result*.
 
-## Pre-requisites (assume true — do not narrate)
-
-- The user has the `onchainos` CLI installed and is logged into their OKX Agentic Wallet (TEE-backed).
-- The wallet is funded with **USD₮0 on X Layer** (chain index `196`, asset `0x779ded0c9e1022225f8e0630b35a9b54be713736`).
-- The companion skill `okx-agent-payments-protocol` is installed — it owns the 402-detection + signing + header-assembly + replay logic. You never call `onchainos payment x402-pay` directly from this skill.
-
-If any of these are missing, the companion skill will surface the issue; do not try to fix it from here.
-
 ## Endpoint catalog
 
 All endpoints under `https://api.ethyai.app/paid/v1/xlayer/<endpoint>/<chain>/<asset>`, GET only, JSON responses, prices in USD₮0.
 
 | Endpoint | Price | What it returns | When to use |
 |---|---|---|---|
-| `signal` | **$0.05** | `{ direction: 'BUY' \| 'SELL', entryPrice, takeProfit, stopLoss, riskReward, timestamp }` | The user asks for a concrete trade setup with entry, stop, and target |
-| `indicators` | **$0.05** | `{ symbol, chain, timeframes: { [tf]: { indicators: { rsi, macd, ema9, ema21, sma20, bb, adx }, candleCount } } }` — multi-TF by default | The user wants raw technicals; you need cross-TF context before deciding bias |
-| `score` | **$0.10** | `{ score: 0-100, components: { technical, sentiment?, onchain?, news? }, timestamp }` | Fast triage — is this token strong enough to keep analyzing? Use as a filter |
-| `analysis` | **$0.50** | `{ supportLevels, resistanceLevels, patterns, bias, summary }` — LLM-driven, multi-TF | Tactical S/R levels + narrative bias + pattern detection. Highest-value, highest-cost; ask the user before spending |
+| `signal` | **$0.05** | `{ direction: 'BUY' \| 'SELL', entryPrice, takeProfit, stopLoss, riskReward, rationale, symbol, chain, timeframe, timestamp }` | The user asks for a concrete trade setup with entry, stop, and target |
+| `indicators` | **$0.05** | `{ symbol, chain, timeframes: { [tf]: { indicators: { rsi, macd, ema9, ema21, sma20, bb }, candleCount } } }` — multi-TF by default | The user wants raw technicals; you need cross-TF context before deciding bias |
+| `score` | **$0.10** | `{ score: 0-100, components: { technical, momentum, volatility, structure }, rationale, asset, chain, timestamp }` | Fast triage — is this token strong enough to keep analyzing? Use as a filter |
+| `analysis` | **$0.25** | `{ asset, timeframe, supportLevels, resistanceLevels, patterns, summary, bias, analyzedAt, chain }` — LLM-driven, multi-TF | Tactical S/R levels + narrative bias + pattern detection. Ask the user before spending |
 
 ### Path parameters
 
@@ -64,17 +67,76 @@ GET /paid/v1/xlayer/analysis/base/VIRTUAL
 GET /paid/v1/xlayer/analysis/xlayer/0xe7b000003a45145decf8a28fc755ad5ec5ea025a
 ```
 
-## How to invoke (the only flow you need)
+## The 402 → pay → retry round trip
 
-For any endpoint, run a plain `curl`:
+Every paid call follows the same three-step dance, and the companion skill `okx-agent-payments-protocol` automates all of it. **From this skill's point of view, all you do is `curl` — the companion handles the rest.** The mechanics are documented here for clarity:
+
+### Step 1 — initial GET returns 402
+
+```bash
+curl -i 'https://api.ethyai.app/paid/v1/xlayer/signal/xlayer/WOKB'
+```
+
+Response:
+```
+HTTP/2 402
+content-type: application/json
+payment-required: eyJ4NDAyVmVyc2lvbiI6MiwiZXJyb3IiOiJQYXltZW50IHJlcXVpcmVkIi…
+
+{}
+```
+
+The `payment-required` header is a base64-encoded JSON challenge:
+```json
+{
+  "x402Version": 2,
+  "resource": { "url": "...", "description": "Latest trading signal…" },
+  "accepts": [{
+    "scheme": "exact",
+    "network": "eip155:196",
+    "amount": "50000",
+    "asset": "0x779ded0c9e1022225f8e0630b35a9b54be713736",
+    "payTo": "0xe8067E3C72F18054De14E4950480c093156130f8",
+    "maxTimeoutSeconds": 300,
+    "extra": { "name": "USD₮0", "version": "1" }
+  }]
+}
+```
+
+### Step 2 — sign the authorization
+
+The companion skill calls the agentic wallet's TEE signer (under the hood: `onchainos payment x402-pay --network eip155:196 --amount 50000 --pay-to 0xe806… --asset 0x779d…`) and produces an EIP-3009 `transferWithAuthorization` signature. The user sees the OnchainOS branded confirmation prompt with the exact amount + payee + network before the signature is generated.
+
+### Step 3 — replay the request with the `PAYMENT-SIGNATURE` header
+
+The companion skill assembles the final header:
+```
+PAYMENT-SIGNATURE: <base64 of { x402Version, resource, accepted, payload: { signature, authorization } }>
+```
+
+…and replays:
+```bash
+curl -i -H "PAYMENT-SIGNATURE: <header>" 'https://api.ethyai.app/paid/v1/xlayer/signal/xlayer/WOKB'
+```
+
+On success:
+```
+HTTP/2 200
+content-type: application/json
+payment-response: <base64 with the X Layer settlement tx hash>
+
+{ "direction": "BUY", "entryPrice": 85.91, "takeProfit": 89.19, ... }
+```
+
+The `payment-response` header decodes to `{ network, payer, success: true, transaction: "0x…" }` — that's your on-chain receipt.
+
+### What you actually do from this skill
 
 ```bash
 curl -fsS 'https://api.ethyai.app/paid/v1/xlayer/<endpoint>/<chain>/<asset>'
 ```
 
-The first request comes back as **HTTP 402**. The `okx-agent-payments-protocol` skill detects this automatically (via the `PAYMENT-REQUIRED` response header), prompts the user for explicit confirmation of the charge, signs the authorization via the OKX Agentic Wallet TEE, and replays the request. You receive the final JSON body on success.
-
-**You do not assemble payment headers, you do not call signing CLIs, you do not parse base64 payloads from response headers.** That is the companion skill's job. Your job is to decide *which endpoint to call and with what arguments*.
+That's it. The 402 hits the companion skill, the user confirms, the replay happens, and you receive the 200 body. **You do not assemble payment headers, you do not call signing CLIs, you do not parse base64 payloads.** That is the companion skill's job. Your job is to decide *which endpoint to call and with what arguments*, then format the result.
 
 ## Spend policy — climb the ladder
 
@@ -82,15 +144,15 @@ When the user asks an open-ended trading question ("should I long ETH?", "anythi
 
 1. **Triage** → `score` ($0.10) OR `signal` ($0.05). If the result is unremarkable (score < 50, or no clear signal), report back without escalating.
 2. **Confirm setup** → `indicators` ($0.05). Use multi-TF (default) unless the user specified a TF. Look for TF alignment and overbought/oversold extremes.
-3. **Tactical levels** → `analysis` ($0.50). Only after step 2 supports a trade, AND only with explicit user buy-in for the spend.
+3. **Tactical levels** → `analysis` ($0.25). Only after step 2 supports a trade, AND only with explicit user buy-in for the spend.
 
-Typical total per "should I trade X?" question: **$0.20–$0.70**. After each call, **narrate the running total** in a compact footer (see "Output formatting").
+Typical total per "should I trade X?" question: **$0.15–$0.45**. After each call, **narrate the running total** in a compact footer (see "Output formatting").
 
 When the user requests a **complete analysis explicitly** (e.g. "full analysis of WOKB", "complete report on X"), it is acceptable to call `analysis` first — but **announce the higher cost upfront and confirm** before invoking.
 
 <NEVER>
-- Do NOT call all four endpoints in parallel "to be thorough". You will burn $0.70 per question by reflex.
-- Do NOT call `analysis` ($0.50) without asking the user first.
+- Do NOT call all four endpoints in parallel "to be thorough". You will burn $0.45 per question by reflex.
+- Do NOT call `analysis` ($0.25) without asking the user first.
 - Do NOT call paid endpoints for trivial questions ("what's BTC price right now?") — use `okx-dex-market` (free).
 - Do NOT mention "x402", "PAYMENT-REQUIRED", or any internal protocol literal to the user. Use **OKX Agent Payments Protocol** if you need to name the mechanism.
 - Do NOT attempt to settle payments manually. Defer to `okx-agent-payments-protocol`.
@@ -111,7 +173,7 @@ Render every endpoint result with a clear ASCII-bordered block + a one-line foot
 │  Risk / Reward  <X.X>                 │
 ╰───────────────────────────────────────╯
 ```
-Add a one-line note assessing the R:R quality (e.g. *"R:R 2.0 — acceptable for swing positions"*).
+Add a one-line note assessing the R:R quality (e.g. *"R:R 2.0 — acceptable for swing positions"*). If the response includes `rationale`, append it underneath.
 
 ### Multi-TF Indicators — output template
 
@@ -134,12 +196,12 @@ After the table, add 1-2 lines of plain interpretation (TF alignment, divergence
 ╭─ Ethy Score · <asset> ───────────────╮
 │  Score        <0-100> / 100           │
 │  Technical    <0-100>                 │
-│  Onchain      <0-100>                 │
-│  Sentiment    <0-100>                 │
-│  News         <0-100>                 │
+│  Momentum     <0-100>                 │
+│  Volatility   <0-100>                 │
+│  Structure    <0-100>                 │
 ╰───────────────────────────────────────╯
 ```
-Flag any component < 40 with an inline note.
+Flag any component < 40 with an inline note. If the response includes `rationale`, append it underneath.
 
 ### AI-powered Chart Analysis — output template
 
@@ -165,27 +227,11 @@ After each paid call, append a single-line footer:
 
 Show the X Layer settlement hash (short form, e.g. `0xc435…597bf`) — the `payment-response` header returned by every successful call contains the full hash.
 
-## Skill routing — when NOT to use this skill
-
-| User intent | Use skill |
-|---|---|
-| Token spot price / chart / 24h change | `okx-dex-market` (free) |
-| Token metadata / contract / holders | `okx-dex-token` (free) |
-| Whale / smart money signals | `okx-dex-signal` (free) |
-| **Trading signal / "should I trade X" / entry-exit** | **this skill** |
-| **Technical indicators / RSI / MACD / multi-TF** | **this skill** |
-| **Ethy Score / 0-100 token rating** | **this skill** |
-| **LLM chart analysis / S+R / pattern / bias** | **this skill** |
-| Execute a swap | `okx-dex-swap` |
-| Send / approve / sign on the wallet | `okx-agentic-wallet` |
-
-If the user's intent is ambiguous (e.g. "tell me about ETH"), default to the cheapest fitting skill (`okx-dex-market` for context) and ASK whether they want paid intelligence before invoking us.
-
 ## Edge cases
 
-- **HTTP 404 "No indicators available"** → the source cron hasn't populated cache for this asset/timeframe yet. Tell the user no data is available; **no payment was charged** — the broker only finalizes settlement when the handler returns 2xx.
+- **HTTP 404 "Not enough candles to generate a signal"** / **"Not enough candles to score"** → the asset is in the registry but CoinGecko didn't return enough recent OHLCV. **No payment was charged** — the broker only finalizes settlement when the handler returns 2xx.
 - **HTTP 404 "Asset not found on chain"** → the asset isn't in Ethy's token registry for that chain. Suggest a known asset (e.g. `base/ETHY`, `xlayer/WOKB`, `base/VIRTUAL`, `base/AERO`) or ask the user to provide a contract address on a supported chain.
-- **HTTP 503 from `analysis`** → the LLM step failed (rare). Retry once; if still failing, fall back to `indicators` + `score` and synthesize manually.
+- **HTTP 503 from `analysis` / `signal` / `score`** → the LLM step failed (rare). Retry once; if still failing, surface the error to the user.
 - **Companion skill says "insufficient balance"** → the user needs more USD₮0 on X Layer. Suggest topping up via OKX exchange withdraw or swap via `okx-dex-swap`. Do NOT continue.
 
 ## FAQ
