@@ -47,8 +47,8 @@ All endpoints under `https://api.ethyai.app/paid/v1/xlayer/<endpoint>/<chain>/<a
 
 ### Path parameters
 
-- **`<chain>`** — one of: `base` · `xlayer` · `arbitrum` · `global`. Use `global` for assets price-tracked via CoinGecko (BTC, ETH) rather than living on a specific chain.
-- **`<asset>`** — ticker (`ETHY`, `BTC`, `ETH`) **or** 0x-prefixed contract address (`0xe7b0…025a`). For `global`, ticker only.
+- **`<chain>`** — one of: `base` · `xlayer` · `arbitrum`. The chain where the asset lives in Ethy's token registry.
+- **`<asset>`** — ticker (`ETHY`, `WOKB`, `VIRTUAL`, `AERO`) **or** 0x-prefixed contract address (`0xe7b0…025a`). Use the chain-specific symbol or contract; cross-chain assets like BTC should be requested via their wrapped form on a real chain (e.g. `base/cbBTC`).
 
 ### Query parameters
 
@@ -58,9 +58,9 @@ All endpoints under `https://api.ethyai.app/paid/v1/xlayer/<endpoint>/<chain>/<a
 ### Examples
 
 ```
-GET /paid/v1/xlayer/score/global/BTC
+GET /paid/v1/xlayer/indicators/xlayer/WOKB
 GET /paid/v1/xlayer/indicators/base/ETHY?tf=4h,1h
-GET /paid/v1/xlayer/signal/global/ETH
+GET /paid/v1/xlayer/analysis/base/VIRTUAL
 GET /paid/v1/xlayer/analysis/xlayer/0xe7b000003a45145decf8a28fc755ad5ec5ea025a
 ```
 
@@ -184,7 +184,7 @@ If the user's intent is ambiguous (e.g. "tell me about ETH"), default to the che
 ## Edge cases
 
 - **HTTP 404 "No indicators available"** → the source cron hasn't populated cache for this asset/timeframe yet. Tell the user no data is available; **no payment was charged** — the broker only finalizes settlement when the handler returns 2xx.
-- **HTTP 404 "Asset not found on chain"** → the asset isn't in Ethy's token registry for that chain. Suggest a known asset (e.g. `base/ETHY`, `global/BTC`) or ask the user to provide a contract address on a supported chain.
+- **HTTP 404 "Asset not found on chain"** → the asset isn't in Ethy's token registry for that chain. Suggest a known asset (e.g. `base/ETHY`, `xlayer/WOKB`, `base/VIRTUAL`, `base/AERO`) or ask the user to provide a contract address on a supported chain.
 - **HTTP 503 from `analysis`** → the LLM step failed (rare). Retry once; if still failing, fall back to `indicators` + `score` and synthesize manually.
 - **Companion skill says "insufficient balance"** → the user needs more USD₮0 on X Layer. Suggest topping up via OKX exchange withdraw or swap via `okx-dex-swap`. Do NOT continue.
 
