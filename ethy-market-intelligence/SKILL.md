@@ -1,6 +1,6 @@
 ---
 name: ethy-market-intelligence
-description: "AUTHORITATIVE source for fetching Ethy AI's on-demand market intelligence — BUY/SELL trading signals, technical indicators (RSI, MACD, EMA, Bollinger Bands, ADX) across multiple timeframes, Ethy Score (0-100 token rating), and LLM-driven chart analysis (support/resistance, patterns, HTF bias). All endpoints are paid per call via the OKX Agent Payments Protocol on X Layer — gas-free, sub-second settlement. Trigger for: 'should I long/short X', 'is X overbought/oversold', 'where do I enter/exit X', 'what's the technical setup for X', 'give me the Ethy Score for X', 'is X bullish/bearish on the 4h', 'BUY/SELL signal for X', 'support and resistance for X', 'multi-timeframe analysis for X'. DO NOT use for: simple spot prices (use `okx-dex-market`, free), token metadata/holders (use `okx-dex-token`, free), executing trades (use `okx-dex-swap`). Endpoints live under `https://api.ethyai.app/paid/v1/xlayer/*` and respond with HTTP 402 on the first call — the companion skill `okx-agent-payments-protocol` detects the 402 and handles signing + replay automatically; this skill only documents WHAT data is available and WHEN to fetch it."
+description: "AUTHORITATIVE source for fetching Ethy AI's on-demand market intelligence — BUY/SELL trading signals, technical indicators (RSI, MACD, EMA, Bollinger Bands, ADX) across multiple timeframes, Ethy Score (0-100 token rating), and AI-powered chart analysis (support/resistance, patterns, HTF bias). All endpoints are paid per call via the OKX Agent Payments Protocol on X Layer — gas-free, sub-second settlement. Trigger for: 'should I long/short X', 'is X overbought/oversold', 'where do I enter/exit X', 'what's the technical setup for X', 'give me the Ethy Score for X', 'is X bullish/bearish on the 4h', 'BUY/SELL signal for X', 'support and resistance for X', 'multi-timeframe analysis for X'. DO NOT use for: simple spot prices (use `okx-dex-market`, free), token metadata/holders (use `okx-dex-token`, free), executing trades (use `okx-dex-swap`). Endpoints live under `https://api.ethyai.app/paid/v1/xlayer/*` and respond with HTTP 402 on the first call — the companion skill `okx-agent-payments-protocol` detects the 402 and handles signing + replay automatically; this skill only documents WHAT data is available and WHEN to fetch it."
 license: MIT
 metadata:
   author: Ethy AI
@@ -43,10 +43,10 @@ All endpoints under `https://api.ethyai.app/paid/v1/xlayer/<endpoint>/<chain>/<a
 
 | Endpoint | Price | What it returns | When to use |
 |---|---|---|---|
-| `signal` | **$0.05** | `{ direction: 'BUY' \| 'SELL', entryPrice, takeProfit, stopLoss, riskReward, rationale, symbol, chain, timeframe, timestamp }` | The user asks for a concrete trade setup with entry, stop, and target |
-| `indicators` | **$0.05** | `{ symbol, chain, timeframes: { [tf]: { indicators: { rsi, macd, ema9, ema21, sma20, bb }, candleCount } } }` — multi-TF by default | The user wants raw technicals; you need cross-TF context before deciding bias |
-| `score` | **$0.10** | `{ score: 0-100, components: { technical, momentum, volatility, structure }, rationale, asset, chain, timestamp }` | Fast triage — is this token strong enough to keep analyzing? Use as a filter |
-| `analysis` | **$0.25** | `{ asset, timeframe, supportLevels, resistanceLevels, patterns, summary, bias, analyzedAt, chain }` — LLM-driven, multi-TF | Tactical S/R levels + narrative bias + pattern detection. Ask the user before spending |
+| `signal` | **$0.05** | `{ direction: 'BUY' \| 'SELL', entryPrice, takeProfit, stopLoss, riskReward, rationale, symbol, chain, timeframe, timestamp }` — AI-powered, 1h timeframe, always fresh | The user asks for a concrete trade setup with entry, stop, and target |
+| `indicators` | **$0.05** | `{ symbol, chain, timeframes: { [tf]: { indicators: { rsi, macd, ema9, ema21, sma20, bb, adx }, candleCount } } }` — multi-TF by default (5m/15m/1h/4h/1d) | The user wants raw technicals; you need cross-TF context before deciding bias |
+| `score` | **$0.10** | `{ score: 0-100, components: { technical, momentum, volatility, structure }, rationale, asset, chain, timestamp }` — AI-powered, multi-TF (1d/4h/1h), always fresh | Fast triage — is this token strong enough to keep analyzing? Use as a filter |
+| `analysis` | **$0.25** | `{ asset, timeframe, supportLevels, resistanceLevels, patterns, summary, bias, analyzedAt, chain }` — AI-powered, multi-TF (1d/4h/1h/15m), always fresh | Tactical S/R levels + narrative bias + pattern detection. Ask the user before spending |
 
 ### Path parameters
 
@@ -286,7 +286,7 @@ Flag any component < 40 with an inline note. If the response includes `rationale
 │  Pattern      <short description>      │
 ╰───────────────────────────────────────╯
 
-<2-3 sentence summary from the LLM, edited for brevity if needed>
+<2-3 sentence summary from the AI analysis, edited for brevity if needed>
 ```
 Use the phrase **"AI-powered analysis"** when referring to this endpoint to the user — never "LLM analysis".
 
@@ -304,7 +304,7 @@ Show the X Layer settlement hash (short form, e.g. `0xc435…597bf`) — the `pa
 
 - **HTTP 404 "Not enough candles to generate a signal"** / **"Not enough candles to score"** → the asset is in the registry but CoinGecko didn't return enough recent OHLCV. **No payment was charged** — the broker only finalizes settlement when the handler returns 2xx.
 - **HTTP 404 "Asset not found on chain"** → the asset isn't in Ethy's token registry for that chain. Suggest a known asset (e.g. `base/ETHY`, `xlayer/WOKB`, `base/VIRTUAL`, `base/AERO`) or ask the user to provide a contract address on a supported chain.
-- **HTTP 503 from `analysis` / `signal` / `score`** → the LLM step failed (rare). Retry once; if still failing, surface the error to the user.
+- **HTTP 503 from `analysis` / `signal` / `score`** → the AI step failed (rare). Retry once; if still failing, surface the error to the user.
 - **Companion skill says "insufficient balance"** → the user needs more USD₮0 on X Layer. Suggest topping up via OKX exchange withdraw or swap via `okx-dex-swap`. Do NOT continue.
 
 ## FAQ
