@@ -16,7 +16,7 @@ This installs the skills under `.agents/skills/` in your current directory and s
 
 | Skill | Status | What it does |
 |---|---|---|
-| [`ethy-market-intelligence`](./ethy-market-intelligence/SKILL.md) | ✅ Live | BUY/SELL signals, technical indicators, Ethy Score, and LLM chart analysis. Pay per call ($0.05–$0.50). |
+| [`ethy-market-intelligence`](./ethy-market-intelligence/SKILL.md) | ✅ Live | BUY/SELL signals, technical indicators, Ethy Score, and LLM chart analysis. Pay per call ($0.05–$0.25). |
 | `ethy-trading` | Roadmap | Execute spot trades on Base / X Layer via Ethy's agent (with stops + automations). |
 | `ethy-automations` | Roadmap | Create, pause, and modify rule-based automations through natural language. |
 | `ethy-backtest` | Roadmap | Backtest a strategy spec against historical OHLCV data. |
@@ -74,7 +74,7 @@ See [`ethy-market-intelligence/SKILL.md`](./ethy-market-intelligence/SKILL.md) f
 | `/paid/v1/xlayer/signal/<chain>/<asset>` | $0.05 | Latest BUY/SELL signal with entry / stop / take-profit |
 | `/paid/v1/xlayer/indicators/<chain>/<asset>` | $0.05 | Multi-TF technical indicators (RSI, MACD, EMA, BB, ADX) |
 | `/paid/v1/xlayer/score/<chain>/<asset>` | $0.10 | Ethy Score 0–100 with component breakdown |
-| `/paid/v1/xlayer/analysis/<chain>/<asset>` | $0.50 | LLM chart analysis — support, resistance, patterns, bias |
+| `/paid/v1/xlayer/analysis/<chain>/<asset>` | $0.25 | LLM chart analysis — support, resistance, patterns, bias |
 
 `<chain>` ∈ `base` · `xlayer` · `arbitrum` · `global` (for BTC/ETH price-only).
 `<asset>` is a ticker or `0x`-prefixed contract address.
